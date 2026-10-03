@@ -3,6 +3,11 @@ import shutil
 import tempfile
 import subprocess
 import re
+import io
+import urllib.request
+import urllib.error
+import socket
+import zipfile
 from typing import List, Dict, Any, Optional
 
 from .rag.chunkers import CodeChunker, Chunk
@@ -103,6 +108,80 @@ def _classify_file(rel_path: str, full_path: str) -> str:
     return ""
 
 
+def _parse_github_repo(repo_url: str) -> Optional[tuple]:
+    """Parse (owner, repo) from a GitHub repository URL."""
+    if not repo_url:
+        return None
+    url = repo_url.strip()
+    if url.startswith("git@github.com:"):
+        url = url.replace("git@github.com:", "https://github.com/")
+    m = re.match(r"^https?://(?:www\.)?github\.com/([^/]+)/([^/#?]+)", url, re.IGNORECASE)
+    if not m:
+        return None
+    owner = m.group(1).strip()
+    repo = m.group(2).strip()
+    if repo.endswith(".git"):
+        repo = repo[:-4]
+    return (owner, repo) if owner and repo else None
+
+
+def _download_github_zip(owner: str, repo: str, target_dir: str, timeout: int = 30) -> None:
+    """
+    Download repository archive from GitHub as a ZIP and extract into target_dir.
+    Strips top-level archive directory so target_dir contains the repository root files directly.
+    """
+    archive_url = f"https://github.com/{owner}/{repo}/archive/HEAD.zip"
+    headers = {
+        "User-Agent": "Reprova-Paper-Reproducibility/1.0 (https://reprova.dev)"
+    }
+    req = urllib.request.Request(archive_url, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            data = resp.read()
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            raise RuntimeError(f"Repository '{owner}/{repo}' not found on GitHub (404). Please verify the URL.")
+        raise RuntimeError(f"GitHub returned HTTP {e.code} while downloading repository archive for '{owner}/{repo}'.")
+    except urllib.error.URLError as e:
+        if isinstance(e.reason, socket.timeout):
+            raise RuntimeError(f"Download timed out while fetching repository '{owner}/{repo}' from GitHub.")
+        raise RuntimeError(f"Failed to access repository '{owner}/{repo}': {e.reason}")
+    except (socket.timeout, TimeoutError):
+        raise RuntimeError(f"Download timed out while fetching repository '{owner}/{repo}' from GitHub.")
+    except Exception as e:
+        raise RuntimeError(f"Failed to download repository '{owner}/{repo}': {str(e)}")
+
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as zf:
+            namelist = zf.namelist()
+            if not namelist:
+                raise RuntimeError(f"Downloaded repository archive for '{owner}/{repo}' is empty.")
+
+            parts = [n.split("/")[0] for n in namelist if "/" in n]
+            prefix = parts[0] + "/" if parts and all(n.startswith(parts[0] + "/") for n in namelist if n != parts[0]) else ""
+
+            target_abs = os.path.abspath(target_dir)
+            for member in zf.infolist():
+                rel_path = member.filename[len(prefix):] if prefix and member.filename.startswith(prefix) else member.filename
+                if not rel_path or rel_path.endswith("/"):
+                    continue
+
+                # Path traversal safety check
+                dest_path = os.path.abspath(os.path.join(target_dir, rel_path))
+                if not dest_path.startswith(target_abs):
+                    continue
+
+                os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+                with zf.open(member) as src_file, open(dest_path, "wb") as dst_file:
+                    shutil.copyfileobj(src_file, dst_file)
+    except zipfile.BadZipFile:
+        raise RuntimeError(f"Downloaded file for '{owner}/{repo}' is not a valid ZIP archive.")
+    except Exception as e:
+        if isinstance(e, RuntimeError):
+            raise
+        raise RuntimeError(f"Failed to extract repository archive for '{owner}/{repo}': {str(e)}")
+
+
 def analyze_repo(
     repo_url: str,
     vector_store: Optional[ReprovaVectorStore] = None,
@@ -110,7 +189,7 @@ def analyze_repo(
     profiler: Any = None
 ) -> dict:
     """
-    1. Clone GitHub repository with depth 1.
+    1. Clone GitHub repository with depth 1, or download via HTTPS ZIP archive if git is unavailable.
     2. Walk file tree within safety caps (MAX_FILES_LIMIT=500, MAX_SIZE_BYTES=50MB).
     3. Structural AST and line-window chunking across code and config files (.py, .yaml, .json, .toml, .sh, .md, Dockerfile).
     4. Dense vector embedding and indexing in in-memory Qdrant code collection.
@@ -135,31 +214,94 @@ def analyze_repo(
     chunker = CodeChunker()
 
     try:
-        # Perform shallow git clone
-        if profiler:
-            profiler.start_stage("Repository clone", mode="sequential")
+        # Acquire repository files via git clone if available, or HTTPS ZIP fallback
+        cloned = False
+        git_executable = shutil.which("git")
 
-        cmd = ["git", "clone", "--depth", "1", repo_url.strip(), temp_dir]
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=45)
+        if git_executable:
+            if profiler:
+                profiler.start_stage("Repository clone", mode="sequential")
+            try:
+                cmd = ["git", "clone", "--depth", "1", repo_url.strip(), temp_dir]
+                res = subprocess.run(cmd, capture_output=True, text=True, timeout=45)
+                if profiler:
+                    profiler.end_stage("Repository clone")
+                if res.returncode == 0:
+                    cloned = True
+                else:
+                    err_msg = res.stderr.strip() if res.stderr else "git clone failed"
+                    if "not found" in err_msg.lower() or "could not resolve host" in err_msg.lower():
+                        user_error = f"Repository '{repo_url}' not found or unreachable. Please verify the URL."
+                        return {
+                            "repo_url": repo_url,
+                            "files_found": [],
+                            "readme_summary": "",
+                            "warnings": [user_error],
+                            "error": user_error,
+                            "code_chunks": [],
+                            "total_code_chunks": 0
+                        }
+            except (FileNotFoundError, OSError):
+                if profiler:
+                    try:
+                        profiler.end_stage("Repository clone")
+                    except Exception:
+                        pass
+                cloned = False
+            except subprocess.TimeoutExpired:
+                if profiler:
+                    try:
+                        profiler.end_stage("Repository clone")
+                    except Exception:
+                        pass
+                user_error = "Repository clone timed out after 45 seconds."
+                return {
+                    "repo_url": repo_url,
+                    "files_found": [],
+                    "readme_summary": "",
+                    "warnings": [user_error],
+                    "error": user_error,
+                    "code_chunks": [],
+                    "total_code_chunks": 0
+                }
 
-        if profiler:
-            profiler.end_stage("Repository clone")
-
-        if res.returncode != 0:
-            err_msg = res.stderr.strip() if res.stderr else "git clone failed"
-            if "not found" in err_msg.lower() or "could not resolve host" in err_msg.lower():
-                user_error = f"Repository '{repo_url}' not found or unreachable. Please verify the URL."
-            else:
-                user_error = f"Failed to access repository: {err_msg}"
-            return {
-                "repo_url": repo_url,
-                "files_found": [],
-                "readme_summary": "",
-                "warnings": [user_error],
-                "error": user_error,
-                "code_chunks": [],
-                "total_code_chunks": 0
-            }
+        if not cloned:
+            # Fallback: Download via GitHub HTTPS ZIP archive (critical for serverless environments like Vercel)
+            parsed = _parse_github_repo(repo_url)
+            if not parsed:
+                user_error = f"Repository '{repo_url}' could not be accessed. Provide a valid public GitHub repository URL."
+                return {
+                    "repo_url": repo_url,
+                    "files_found": [],
+                    "readme_summary": "",
+                    "warnings": [user_error],
+                    "error": user_error,
+                    "code_chunks": [],
+                    "total_code_chunks": 0
+                }
+            owner, repo = parsed
+            if profiler:
+                profiler.start_stage("Repository download", mode="sequential")
+            try:
+                _download_github_zip(owner, repo, temp_dir, timeout=30)
+                cloned = True
+            except RuntimeError as err:
+                user_error = str(err)
+                return {
+                    "repo_url": repo_url,
+                    "files_found": [],
+                    "readme_summary": "",
+                    "warnings": [user_error],
+                    "error": user_error,
+                    "code_chunks": [],
+                    "total_code_chunks": 0
+                }
+            finally:
+                if profiler:
+                    try:
+                        profiler.end_stage("Repository download")
+                    except Exception:
+                        pass
 
         # Walk repo tree
         if profiler:
