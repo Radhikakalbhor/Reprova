@@ -15,7 +15,7 @@ Reprova features secure user authentication and session management built nativel
   - Passwords hashed with `bcryptjs` using a cost factor of **12**; passwords and hashes are never exposed to the client.
   - Idempotent unique indexes on `email` and `username`.
   - Account linking: Signing in via Google with an existing credentials email links to the account rather than duplicating it.
-  - Route protection: `/analyze` and `/results` are protected via Edge Middleware (`src/middleware.ts`), preserving query parameters upon redirection to `/signin?callbackUrl=...`.
+  - Route protection: `/analyze` and `/results` are protected via Node.js Server Component route guards (`src/lib/auth-guard.ts`), preserving query parameters upon redirection to `/signin?callbackUrl=...`.
   - Authenticated users visiting `/signin` or `/signup` are automatically redirected to `/analyze`.
 
 ---
