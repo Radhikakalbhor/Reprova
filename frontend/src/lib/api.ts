@@ -167,11 +167,37 @@ export interface AnalyzeParams {
   mode?: string;
 }
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
+/**
+ * Resolves the appropriate backend API endpoint URL:
+ * - In runtime server functions: uses the Vercel internal service binding `BACKEND_URL`,
+ *   falling back to `NEXT_PUBLIC_API_URL` or `http://localhost:8000`.
+ * - In the browser: uses `NEXT_PUBLIC_API_URL` if set (e.g. standalone local dev),
+ *   otherwise routes through the public `/api` path prefix configured via Vercel rewrites.
+ */
+function getApiEndpoint(path: string): string {
+  const cleanPath = path.startsWith('/') ? path.slice(1) : path;
+
+  if (typeof window === 'undefined') {
+    const base = process.env.BACKEND_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+    return new URL(cleanPath, base.endsWith('/') ? base : `${base}/`).toString();
+  }
+
+  if (process.env.NEXT_PUBLIC_API_URL) {
+    const base = process.env.NEXT_PUBLIC_API_URL.endsWith('/')
+      ? process.env.NEXT_PUBLIC_API_URL
+      : `${process.env.NEXT_PUBLIC_API_URL}/`;
+    return new URL(cleanPath, base).toString();
+  }
+
+  return `/api/${cleanPath}`;
+}
 
 export async function fetchCuratedPapers(): Promise<CuratedPaper[]> {
   try {
-    const response = await fetch(`${API_BASE_URL}/papers`);
+    const targetUrl = getApiEndpoint('papers');
+    const response = await fetch(targetUrl);
     if (!response.ok) return [];
     const data = await response.json();
     return data.papers || [];
@@ -181,14 +207,15 @@ export async function fetchCuratedPapers(): Promise<CuratedPaper[]> {
 }
 
 export async function analyzePaper(params: AnalyzeParams | FormData): Promise<AnalyzeResponse> {
+  const targetUrl = getApiEndpoint('analyze');
   let response: Response;
   if (typeof FormData !== 'undefined' && params instanceof FormData) {
-    response = await fetch(`${API_BASE_URL}/analyze`, {
+    response = await fetch(targetUrl, {
       method: 'POST',
       body: params,
     });
   } else {
-    response = await fetch(`${API_BASE_URL}/analyze`, {
+    response = await fetch(targetUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -217,7 +244,8 @@ export async function analyzePaper(params: AnalyzeParams | FormData): Promise<An
 
 export async function checkBackendHealth(): Promise<{ status: string }> {
   try {
-    const response = await fetch(`${API_BASE_URL}/health`);
+    const targetUrl = getApiEndpoint('health');
+    const response = await fetch(targetUrl);
     if (!response.ok) return { status: 'offline' };
     return response.json();
   } catch {

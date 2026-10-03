@@ -29,7 +29,7 @@ export const HoverEffect = ({
       )}
     >
       {items.map((item, idx) => {
-        const Wrapper = item.link ? Link : "div";
+        const Wrapper: any = item.link ? Link : "div";
         const wrapperProps = item.link
           ? { href: item.link, target: item.link.startsWith("http") ? "_blank" : undefined }
           : {};

@@ -41,8 +41,9 @@ app.add_middleware(
 from fastapi.responses import JSONResponse
 from fastapi import Request
 
-# Register routes
+# Register routes (both directly and with /api prefix for public rewrites)
 app.include_router(api_router)
+app.include_router(api_router, prefix="/api")
 
 
 @app.exception_handler(Exception)
@@ -54,6 +55,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 
 @app.get("/")
+@app.get("/api")
 async def root():
     return {
         "message": "Welcome to ML Paper Reproducibility API",
