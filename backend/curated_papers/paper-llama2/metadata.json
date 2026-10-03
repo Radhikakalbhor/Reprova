@@ -1,0 +1,14 @@
+{
+  "paper_id": "paper-llama2",
+  "title": "Llama 2: Open Foundation and Fine-Tuned Chat Models",
+  "repo_url": "https://github.com/facebookresearch/llama",
+  "supports_multi_seed": true,
+  "default_seeds": [42, 123, 456],
+  "claimed_metrics": [
+    {
+      "metric": "top1_accuracy",
+      "claimed_value": 0.945,
+      "description": "Top-1 Accuracy on benchmark"
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "paper_id": "paper-mistral7b",
+  "title": "Mistral 7B",
+  "repo_url": "https://github.com/mistralai/mistral-src",
+  "supports_multi_seed": false,
+  "multi_seed_reason": "Seed control unavailable for this experiment. Benchmark script does not expose random seed configuration.",
+  "claimed_metrics": [
+    {
+      "metric": "benchmark_score",
+      "claimed_value": 0.890,
+      "description": "Benchmark score across standard evaluations"
+    }
+  ]
+}

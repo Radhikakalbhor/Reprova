@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ml-paper-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - PORT=8000
+    volumes:
+      - ./backend:/app
+      - ./backend/curated_papers:/app/curated_papers
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: ml-paper-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - MONGODB_URI=${MONGODB_URI:-mongodb://host.docker.internal:27017/reprova}
+      - NEXTAUTH_URL=${NEXTAUTH_URL:-http://localhost:3000}
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:-reprova-dev-secret-key-32-chars-minimum-entropy}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
+    depends_on:
+      - backend
+    restart: unless-stopped

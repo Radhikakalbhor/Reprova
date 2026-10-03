@@ -1,0 +1,14 @@
+{
+  "paper_id": "paper-clip",
+  "title": "Learning Transferable Visual Models From Natural Language Supervision (CLIP)",
+  "repo_url": "https://github.com/openai/CLIP",
+  "supports_multi_seed": false,
+  "multi_seed_reason": "Seed control unavailable for this experiment. Zero-shot evaluation pipeline operates on a fixed deterministic evaluation split.",
+  "claimed_metrics": [
+    {
+      "metric": "zero_shot_accuracy",
+      "claimed_value": 0.740,
+      "description": "Zero-shot Top-1 Accuracy on ImageNet"
+    }
+  ]
+}
