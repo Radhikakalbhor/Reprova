@@ -74,65 +74,72 @@ export const authOptions: NextAuthOptions = {
     async signIn({ user, account }) {
       if (account?.provider === 'google') {
         if (!user.email) {
+          console.error('[NextAuth] Google signIn rejected: missing email in user profile');
           return false;
         }
 
-        const normalizedEmail = user.email.toLowerCase().trim();
-        const users = await getUsersCollection();
-        const existingUser = await users.findOne({ email: normalizedEmail });
+        try {
+          const normalizedEmail = user.email.toLowerCase().trim();
+          const users = await getUsersCollection();
+          const existingUser = await users.findOne({ email: normalizedEmail });
 
-        if (existingUser) {
-          // Account already exists: link login by updating image & lastLoginAt
-          await users.updateOne(
-            { _id: existingUser._id },
-            {
-              $set: {
-                lastLoginAt: new Date(),
-                ...(user.image && !existingUser.image ? { image: user.image } : {}),
-              },
-            }
-          );
-          user.id = existingUser._id?.toString() || '';
-          user.name = existingUser.username;
-          (user as { username?: string }).username = existingUser.username;
-          return true;
-        }
-
-        // Generate clean unique username from email prefix
-        const emailPrefix = normalizedEmail.split('@')[0];
-        let baseUsername = emailPrefix.replace(/[^a-zA-Z0-9_]/g, '').slice(0, 18);
-        if (baseUsername.length < 3) {
-          baseUsername = `user_${baseUsername || 'auditor'}`.slice(0, 18);
-        }
-
-        let finalUsername = baseUsername;
-        let counter = 1;
-        while (await users.findOne({ username: finalUsername })) {
-          const suffix = Math.floor(100 + Math.random() * 900).toString();
-          finalUsername = `${baseUsername.slice(0, 18)}_${suffix}`.slice(0, 24);
-          counter++;
-          if (counter > 15) {
-            finalUsername = `user_${Date.now().toString().slice(-8)}`;
-            break;
+          if (existingUser) {
+            // Account already exists: link login by updating image & lastLoginAt
+            await users.updateOne(
+              { _id: existingUser._id },
+              {
+                $set: {
+                  lastLoginAt: new Date(),
+                  ...(user.image && !existingUser.image ? { image: user.image } : {}),
+                },
+              }
+            );
+            user.id = existingUser._id?.toString() || '';
+            user.name = existingUser.username;
+            (user as { username?: string }).username = existingUser.username;
+            return true;
           }
+
+          // Generate clean unique username from email prefix
+          const emailPrefix = normalizedEmail.split('@')[0];
+          let baseUsername = emailPrefix.replace(/[^a-zA-Z0-9_]/g, '').slice(0, 18);
+          if (baseUsername.length < 3) {
+            baseUsername = `user_${baseUsername || 'auditor'}`.slice(0, 18);
+          }
+
+          let finalUsername = baseUsername;
+          let counter = 1;
+          while (await users.findOne({ username: finalUsername })) {
+            const suffix = Math.floor(100 + Math.random() * 900).toString();
+            finalUsername = `${baseUsername.slice(0, 18)}_${suffix}`.slice(0, 24);
+            counter++;
+            if (counter > 15) {
+              finalUsername = `user_${Date.now().toString().slice(-8)}`;
+              break;
+            }
+          }
+
+          const now = new Date();
+          const newUser: UserDocument = {
+            username: finalUsername,
+            email: normalizedEmail,
+            passwordHash: null,
+            image: user.image || null,
+            provider: 'google',
+            createdAt: now,
+            lastLoginAt: now,
+          };
+
+          const result = await users.insertOne(newUser);
+          user.id = result.insertedId.toString();
+          user.name = finalUsername;
+          (user as { username?: string }).username = finalUsername;
+          return true;
+        } catch (dbError) {
+          console.error('[NextAuth] Database error in Google signIn callback:', dbError);
+          // Return false so NextAuth surfaces callback failure cleanly
+          return false;
         }
-
-        const now = new Date();
-        const newUser: UserDocument = {
-          username: finalUsername,
-          email: normalizedEmail,
-          passwordHash: null,
-          image: user.image || null,
-          provider: 'google',
-          createdAt: now,
-          lastLoginAt: now,
-        };
-
-        const result = await users.insertOne(newUser);
-        user.id = result.insertedId.toString();
-        user.name = finalUsername;
-        (user as { username?: string }).username = finalUsername;
-        return true;
       }
 
       return true;
