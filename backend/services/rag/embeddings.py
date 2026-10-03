@@ -1,5 +1,18 @@
+import os
+import tempfile
 import threading
 from typing import List, Generator
+
+# Configure cache directories to a writable temporary directory (critical for read-only serverless runtimes like Vercel)
+_TEMP_BASE = "/tmp" if os.name != "nt" and os.path.exists("/tmp") else tempfile.gettempdir()
+FASTEMBED_CACHE_DIR = os.getenv("FASTEMBED_CACHE_PATH", os.path.join(_TEMP_BASE, "fastembed_cache"))
+HF_HOME_DIR = os.getenv("HF_HOME", os.path.join(_TEMP_BASE, "huggingface"))
+
+os.environ.setdefault("FASTEMBED_CACHE_PATH", FASTEMBED_CACHE_DIR)
+os.environ.setdefault("HF_HOME", HF_HOME_DIR)
+os.environ.setdefault("HF_HUB_CACHE", os.path.join(HF_HOME_DIR, "hub"))
+os.environ.setdefault("TORCH_HOME", os.path.join(_TEMP_BASE, "torch"))
+
 from fastembed import TextEmbedding
 
 DEFAULT_EMBEDDING_MODEL = "BAAI/bge-small-en-v1.5"
@@ -25,8 +38,9 @@ class EmbeddingEngine:
         if self._initialized:
             return
         self.model_name = model_name
-        # Initialize FastEmbed ONNX model
-        self.model = TextEmbedding(model_name=self.model_name)
+        self.cache_dir = FASTEMBED_CACHE_DIR
+        # Initialize FastEmbed ONNX model with explicit writable cache directory
+        self.model = TextEmbedding(model_name=self.model_name, cache_dir=self.cache_dir)
         self.embedding_dimension = 384  # bge-small dimension
         self._initialized = True
 

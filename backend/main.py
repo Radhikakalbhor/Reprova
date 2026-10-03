@@ -19,6 +19,14 @@ for env_path in [".env", "backend/.env", "/app/.env"]:
         load_dotenv(env_path)
         break
 
+# Configure writable cache directories for model weights and tokenizers (critical for Vercel read-only runtime)
+import tempfile
+_TEMP_BASE = "/tmp" if os.name != "nt" and os.path.exists("/tmp") else tempfile.gettempdir()
+os.environ.setdefault("FASTEMBED_CACHE_PATH", os.path.join(_TEMP_BASE, "fastembed_cache"))
+os.environ.setdefault("HF_HOME", os.path.join(_TEMP_BASE, "huggingface"))
+os.environ.setdefault("HF_HUB_CACHE", os.path.join(_TEMP_BASE, "huggingface", "hub"))
+os.environ.setdefault("TORCH_HOME", os.path.join(_TEMP_BASE, "torch"))
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from api.routes import router as api_router
