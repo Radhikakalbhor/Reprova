@@ -2,7 +2,6 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { useSession } from 'next-auth/react';
 import { Header } from '@/components/Header';
 import { Footer } from '@/components/Footer';
 import { analyzePaper, fetchCuratedPapers, CuratedPaper } from '@/lib/api';
@@ -42,7 +41,6 @@ const ANALYSIS_STEPS = [
 
 export default function AnalyzeClient() {
   const router = useRouter();
-  const { status } = useSession();
   const [mode, setMode] = useState<'curated' | 'custom'>('curated');
   const [curatedPapers, setCuratedPapers] = useState<CuratedPaper[]>(DEFAULT_CURATED_PAPERS);
   const [selectedPaper, setSelectedPaper] = useState(DEFAULT_CURATED_PAPERS[0].id);
@@ -51,14 +49,6 @@ export default function AnalyzeClient() {
   const [loading, setLoading] = useState(false);
   const [activeStepIndex, setActiveStepIndex] = useState<number>(0);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (status === 'unauthenticated') {
-      const search = typeof window !== 'undefined' ? window.location.search : '';
-      const callback = `/analyze${search}`;
-      router.replace(`/signin?callbackUrl=${encodeURIComponent(callback)}`);
-    }
-  }, [status, router]);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {

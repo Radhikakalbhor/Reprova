@@ -1,6 +1,5 @@
 import type { Metadata } from 'next'
 import './globals.css'
-import { AuthProvider } from '@/components/AuthProvider'
 import { GlobalBackground } from '@/components/GlobalBackground'
 
 export const metadata: Metadata = {
@@ -18,7 +17,7 @@ export default function RootLayout({
       <body className="bg-black text-neutral-100 antialiased min-h-screen flex flex-col font-sans selection:bg-white/20 selection:text-white relative">
         {/* Global fixed background layer + sparkles overlay across all pages */}
         <GlobalBackground />
-        <AuthProvider>{children}</AuthProvider>
+        {children}
       </body>
     </html>
   )

@@ -3,7 +3,6 @@
 import React, { useEffect, useState, Suspense } from 'react';
 import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { useSession } from 'next-auth/react';
 import { Header } from '@/components/Header';
 import { Footer } from '@/components/Footer';
 import { analyzePaper, AnalyzeResponse, Claim, Discrepancy, MetricComparisonItem } from '@/lib/api';
@@ -45,19 +44,10 @@ const ROOT_CAUSE_LABELS: Record<string, { label: string; color: string }> = {
 function ResultsContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { status } = useSession();
   const mode = searchParams.get('mode') || undefined;
   const paperId = searchParams.get('paper_id') || undefined;
   const repoUrl = searchParams.get('repo_url') || undefined;
   const paperUrl = searchParams.get('paper_url') || undefined;
-
-  useEffect(() => {
-    if (status === 'unauthenticated') {
-      const search = typeof window !== 'undefined' ? window.location.search : '';
-      const callback = `/results${search}`;
-      router.replace(`/signin?callbackUrl=${encodeURIComponent(callback)}`);
-    }
-  }, [status, router]);
 
   const [data, setData] = useState<AnalyzeResponse | null>(null);
   const [loading, setLoading] = useState(true);
